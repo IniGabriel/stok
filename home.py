@@ -16,7 +16,7 @@ if "username" not in st.session_state:
 # JIKA SUDAH LOGIN → PINDAH KE DASHBOARD
 # ============================
 if st.session_state.logged_in:
-    st.switch_page("pages/1_Dashboard.py")
+    st.switch_page("pages/dashboard.py")
 
 
 st.title("🔐 Login Pengguna")
