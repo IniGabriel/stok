@@ -22,27 +22,41 @@ st.subheader("📸 Scan Menggunakan Kamera Streamlit (Paling Stabil)")
 img = st.camera_input("Ambil foto barcode:")
 
 if img:
+    # convert foto ke base64
     data = base64.b64encode(img.read()).decode()
-    
+
     decode_js = f"""
-    <script src="https://unpkg.com/@zxing/browser@latest"></script>
-    <img id="img" src="data:image/png;base64,{data}" style="display:none" />
+    <script type="module">
+    import {{ BrowserQRCodeReader }} from 
+        "https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/esm/index.min.js";
 
-    <script>
-    setTimeout(async () => {{
-        const reader = new ZXingBrowser.BrowserMultiFormatReader();
-        const img = document.getElementById("img");
+    const img = document.createElement("img");
+    img.src = "data:image/png;base64,{data}";
+    img.style.display = "none";
+    document.body.appendChild(img);
 
-        try {{
-            const res = await reader.decodeFromImageElement(img);
-            window.parent.postMessage({{barcode: res.text}}, "*");
-        }} catch (e) {{
-            window.parent.postMessage({{barcode: ""}}, "*");
+    const reader = new BrowserQRCodeReader();
+
+    async function tryDecode() {{
+        for (let i = 0; i < 5; i++) {{
+            try {{
+                const res = await reader.decodeFromImageElement(img);
+                window.parent.postMessage({{barcode: res.getText()}}, "*");
+                return;
+            }} catch (e) {{
+                await new Promise(r => setTimeout(r, 150)); 
+            }}
         }}
-    }}, 300);
+        window.parent.postMessage({{barcode: ""}}, "*");
+    }}
+
+    // tunggu gambar load
+    setTimeout(() => tryDecode(), 300);
     </script>
     """
+
     components.html(decode_js, height=1)
+
 
 
 # Terima hasil decode
@@ -102,6 +116,7 @@ rak = st.text_input("Rak tujuan", placeholder="misal: 3")
 
 if st.button("➕ Tambahkan Stok"):
     bc = barcode_value.strip()
+    st.write("Niali bc = ",bc)
 
     if len(bc) < 10:
         st.error("Barcode tidak valid.")
