@@ -1,83 +1,65 @@
 import streamlit as st
 from db import get_conn
 import datetime
-from PIL import Image
-import numpy as np
-import zxingcpp
 
 st.set_page_config(page_title="Scan Barcode", page_icon="📷")
 
-st.title("📷 Scan Barcode – Stable Scanner (ZXing Python)")
-st.write("Gunakan kamera HP / laptop atau upload foto barcode.")
+st.title("📷 Scan Barcode – Browser Live Scanner (HTML5)")
+st.write("Gunakan kamera HP / Laptop untuk memindai barcode.")
 
 barcode_value = st.text_input("Barcode terbaca:", key="barcode_input")
 
-# =====================================================
-# 1. CAMERA INPUT (dijamin muncul kamera)
-# =====================================================
+# =========================================================
+# 1. CAMERA SCANNER (HTML5 WORKING)
+# =========================================================
 
-st.subheader("📸 Kamera Scanner (Pasti Muncul)")
+st.subheader("📸 Kamera Barcode Scanner (Working)")
 
-img_file = st.camera_input("Ambil foto barcode:")
+scanner_html = """
+<div id="reader" style="width:100%; min-height:350px;"></div>
 
-def process_image(image_source):
-    """Return barcode text atau None."""
-    img = Image.open(image_source)
-    frame = np.array(img)
+<script src="https://unpkg.com/html5-qrcode"></script>
 
-    result = zxingcpp.read_barcodes(frame)
+<script>
+function onScanSuccess(decodedText, decodedResult) {
+    window.parent.postMessage({barcode: decodedText}, "*");
+}
 
-    # ---------- VALIDASI 100% ----------
-    if not result:
-        return None
+function onScanFailure(error) {}
 
-    r = result[0]
+let html5Qr = new Html5Qrcode("reader");
 
-    if not r.is_valid:
-        return None
+Html5Qrcode.getCameras().then(cameras => {
+    let camId = cameras.length > 1 ? cameras[1].id : cameras[0].id;
 
-    if not r.text:
-        return None
+    html5Qr.start(
+        camId,
+        { fps: 12, qrbox: 250 },
+        onScanSuccess,
+        onScanFailure
+    );
+});
+</script>
+"""
 
-    code = r.text.strip()
+st.components.v1.html(scanner_html, height=420)
 
-    if code == "":
-        return None
-    
-    return code
+# RECEIVE BARCODE FROM JS
+st.markdown("""
+<script>
+window.addEventListener("message", (event) => {
+    if (event.data.barcode) {
+        const inp = window.parent.document.querySelector('input[id="barcode_input"]');
+        inp.value = event.data.barcode;
+        inp.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+});
+</script>
+""", unsafe_allow_html=True)
 
-
-if img_file:
-    code = process_image(img_file)
-
-    if code:
-        st.session_state["barcode_input"] = code
-        st.success(f"Barcode terbaca: {code}")
-    else:
-        st.warning("❌ Gagal membaca barcode. Pastikan gambar jelas & fokus.")
-
-
-# =====================================================
-# 2. UPLOAD FOTO
-# =====================================================
-
-st.subheader("🖼 Upload Foto Barcode")
-
-uploaded = st.file_uploader("Upload gambar barcode", type=["png", "jpg", "jpeg"])
-
-if uploaded:
-    code = process_image(uploaded)
-
-    if code:
-        st.session_state["barcode_input"] = code
-        st.success(f"Barcode terbaca: {code}")
-    else:
-        st.warning("❌ Gagal membaca barcode dari gambar yang di-upload.")
-
-
-# =====================================================
-# 3. SIMPAN KE DATABASE
-# =====================================================
+# =========================================================
+# 2. SIMPAN STOK
+# =========================================================
 
 st.markdown("---")
 st.subheader("📦 Tambah Stok")
@@ -85,9 +67,7 @@ st.subheader("📦 Tambah Stok")
 rak = st.text_input("Rak tujuan", placeholder="misal: 3")
 
 if st.button("➕ Tambahkan Stok"):
-    bc = st.session_state.get("barcode_input", "").strip()
-
-    st.write("Barcode terbaca =", bc)
+    bc = barcode_value.strip()
 
     if len(bc) < 10:
         st.error("Barcode tidak valid.")
@@ -96,13 +76,13 @@ if st.button("➕ Tambahkan Stok"):
             conn = get_conn()
             cur = conn.cursor()
 
+            # sesuai format barcode kamu: 0101021125
             item_code = bc[:4]
-            date_code = bc[4:10]
+            date = bc[4:10]
 
-            day = int(date_code[:2])
-            month = int(date_code[2:4])
-            year = 2000 + int(date_code[4:6])
-
+            day = int(date[:2])
+            month = int(date[2:4])
+            year = 2000 + int(date[4:6])
             tanggal = datetime.date(year, month, day).strftime("%d %b %Y")
 
             cur.execute("SELECT item_id FROM items WHERE barcode=%s", (item_code,))
@@ -119,10 +99,10 @@ if st.button("➕ Tambahkan Stok"):
                 item_id = cur.fetchone()[0]
 
             cur.execute("SELECT jumlah FROM stock WHERE item_id=%s", (item_id,))
-            srow = cur.fetchone()
+            s = cur.fetchone()
 
-            if srow:
-                jumlah = srow[0] + 1
+            if s:
+                jumlah = s[0] + 1
                 cur.execute("""
                     UPDATE stock SET jumlah=%s, rak=%s, terakhir_update=%s
                     WHERE item_id=%s
@@ -134,8 +114,7 @@ if st.button("➕ Tambahkan Stok"):
                 """, (item_id, rak, 1, tanggal))
 
             conn.commit()
-
-            st.success(f"Stok {item_code} berhasil ditambahkan!")
+            st.success(f"Stok item {item_code} berhasil ditambahkan!")
 
         except Exception as e:
             st.error(str(e))
