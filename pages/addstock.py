@@ -11,92 +11,70 @@ st.write("Arahkan kamera belakang ke barcode. Sistem akan membaca otomatis.")
 
 barcode_value = st.text_input("Barcode Terbaca:", key="barcode_input")
 
-# ============================
-# CAMERA + BARCODE SCANNER JS
-# ============================
+# ===========================================
+# FIXED CAMERA SCANNER (AUTO BACK CAMERA)
+# ===========================================
 
 scanner_html = """
-<html>
-<head>
 <script src="https://unpkg.com/html5-qrcode"></script>
 
-<style>
-#reader {
-    width: 100%;
-    height: 450px;
-    border-radius: 12px;
-    overflow: hidden;
-    position: relative;
-}
-
-/* Paksa kamera full width */
-html5-qrcode-video {
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
-}
-
-/* Atur qrbox supaya selalu di tengah */
-#reader__scan_region {
-    display: flex !important;
-    justify-content: center !important;
-    align-items: center !important;
-}
-</style>
-
-</head>
-<body>
-
-<div id="reader"></div>
+<div id="reader" style="width:100%; border-radius:10px;"></div>
 
 <script>
-function onScanSuccess(decodedText, decodedResult) {
-    const message = {barcode: decodedText};
-    window.parent.postMessage(message, "*");
+async function startScanner() {
+    const videoDevices = (await navigator.mediaDevices.enumerateDevices())
+        .filter(device => device.kind === "videoinput");
+
+    // Cari kamera belakang
+    let backCam = videoDevices.find(d => d.label.toLowerCase().includes("back"));
+
+    const cameraId = backCam ? backCam.deviceId : videoDevices[0].deviceId;
+
+    const html5Qr = new Html5Qrcode("reader");
+
+    html5Qr.start(
+        cameraId,
+        {
+            fps: 10,
+            qrbox: function(viewfinderWidth, viewfinderHeight) {
+                let min = Math.min(viewfinderWidth, viewfinderHeight);
+                return { width: min * 0.7, height: min * 0.7 };
+            }
+        },
+        (decodedText) => {
+            window.parent.postMessage({barcode: decodedText}, "*");
+        },
+        (errorMessage) => {}
+    );
 }
 
-function onScanFailure(error) {}
-
-let html5QrcodeScanner = new Html5QrcodeScanner(
-    "reader",
-    {
-        fps: 12,
-        qrbox: { width: 250, height: 150 },
-        aspectRatio: 1.777 // 16:9
-    },
-    false
-);
-html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+startScanner();
 </script>
-
-</body>
-</html>
 """
 
+components.html(scanner_html, height=480)
 
-components.html(scanner_html, height=500)
-
-# ============================
-# RECEIVE BARCODE FROM JS
-# ============================
+# ===========================================
+# RECEIVE BARCODE FROM JS → INPUT STREAMLIT
+# ===========================================
 
 st.markdown("""
 <script>
 window.addEventListener("message", (event) => {
-    const barcode = event.data.barcode;
-    if (barcode) {
-        const inputBox = window.parent.document.querySelector('input[id="barcode_input"]');
-        inputBox.value = barcode;
-        inputBox.dispatchEvent(new Event('input', { bubbles: true }));
+    const bc = event.data.barcode;
+    if (bc) {
+        const box = window.parent.document.querySelector('input[id="barcode_input"]');
+        box.value = bc;
+        box.dispatchEvent(new Event('input', { bubbles: true }));
     }
 });
 </script>
 """, unsafe_allow_html=True)
 
 
-# ============================
+# ===========================================
 # FORM TAMBAH STOK
-# ============================
+# ===========================================
 
 rak = st.text_input("Rak tujuan:", placeholder="misal: 3")
 
@@ -110,6 +88,7 @@ if st.button("➕ Tambahkan Stok", type="primary"):
             conn = get_conn()
             cur = conn.cursor()
 
+            # QR format: 0101021125
             item_code = barcode[:4]
             date_code = barcode[4:10]
 
