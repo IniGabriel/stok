@@ -107,6 +107,7 @@ if st.button("➕ Tambahkan Stok"):
 
     if len(bc) < 10:
         st.error("Barcode tidak valid.")
+        st.write(bc)
     else:
         try:
             conn = get_conn()
