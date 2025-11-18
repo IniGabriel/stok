@@ -8,54 +8,44 @@ import cv2
 st.set_page_config(page_title="Scan Barcode", page_icon="📷")
 
 st.title("📷 Scan Barcode – QR Live Reader (OpenCV)")
-st.write("Gunakan kamera HP / Laptop untuk memindai QR Code. Sistem membaca otomatis.")
+st.write("Arahkan kamera HP/Laptop ke QR Code. Sistem membaca otomatis.")
+
 
 # ======================================================
-# 1. CAMERA INPUT (SESUAI SCREENSHOT KAMU)
+# CAMERA INPUT (Tanpa preview & tanpa kolom kanan/kiri)
 # ======================================================
 
-if "imageCaptured" not in st.session_state:
-    st.session_state["imageCaptured"] = None
+if "barcode_input" not in st.session_state:
+    st.session_state["barcode_input"] = ""
 
-col1, col2, col3 = st.columns(3)
+capture = st.camera_input("📸 Scan QR Code")
 
-# KAMERA
-with col1:
-    capture = st.camera_input("Scan QR Code di sini", key="cameraQR")
-    if capture:
-        st.session_state["imageCaptured"] = capture
+if capture:
+    img = Image.open(capture)
+    frame = np.array(img)
 
-# SHOW INPUT IMAGE
-with col2:
-    st.subheader("📥 Input QR Code")
-    if st.session_state["imageCaptured"]:
-        st.image(st.session_state["imageCaptured"])
+    qr = cv2.QRCodeDetector()
+    data, pts, _ = qr.detectAndDecode(frame)
 
-# PROCESSING & OUTPUT
-with col3:
-    st.subheader("📤 Output QR Code")
-    if st.session_state["imageCaptured"]:
-        img = Image.open(st.session_state["imageCaptured"])
-        np_img = np.array(img)
+    if data:
+        st.session_state["barcode_input"] = data
+        st.success(f"Barcode terbaca: **{data}**")
+    else:
+        st.error("Gagal membaca QR Code — pastikan kamera fokus & jelas.")
 
-        # === OpenCV QR Decode ===
-        qrDecoder = cv2.QRCodeDetector()
-        data, points, _ = qrDecoder.detectAndDecode(np_img)
-
-        if data:
-            st.success(f"Barcode terbaca: **{data}**")
-            st.session_state["barcode_input"] = data
-        else:
-            st.error("Gagal membaca QR Code")
 
 # ======================================================
-# 2. INPUT BARCODE TERBACA
+# BARCODE TERBACA
 # ======================================================
 
-barcode_value = st.text_input("Barcode terbaca:", value=st.session_state.get("barcode_input", ""))
+barcode_value = st.text_input(
+    "Barcode terbaca:",
+    value=st.session_state.get("barcode_input", "")
+)
+
 
 # ======================================================
-# 3. SIMPAN KE DATABASE
+# SIMPAN KE DATABASE
 # ======================================================
 
 st.markdown("---")
