@@ -1,65 +1,62 @@
 import streamlit as st
 from db import get_conn
 import datetime
+from PIL import Image
+import numpy as np
+import cv2
 
 st.set_page_config(page_title="Scan Barcode", page_icon="📷")
 
-st.title("📷 Scan Barcode – Browser Live Scanner (HTML5)")
-st.write("Gunakan kamera HP / Laptop untuk memindai barcode.")
+st.title("📷 Scan Barcode – QR Live Reader (OpenCV)")
+st.write("Gunakan kamera HP / Laptop untuk memindai QR Code. Sistem membaca otomatis.")
 
-barcode_value = st.text_input("Barcode terbaca:", key="barcode_input")
+# ======================================================
+# 1. CAMERA INPUT (SESUAI SCREENSHOT KAMU)
+# ======================================================
 
-# =========================================================
-# 1. CAMERA SCANNER (HTML5 WORKING)
-# =========================================================
+if "imageCaptured" not in st.session_state:
+    st.session_state["imageCaptured"] = None
 
-st.subheader("📸 Kamera Barcode Scanner (Working)")
+col1, col2, col3 = st.columns(3)
 
-scanner_html = """
-<div id="reader" style="width:100%; min-height:350px;"></div>
+# KAMERA
+with col1:
+    capture = st.camera_input("Scan QR Code di sini", key="cameraQR")
+    if capture:
+        st.session_state["imageCaptured"] = capture
 
-<script src="https://unpkg.com/html5-qrcode"></script>
+# SHOW INPUT IMAGE
+with col2:
+    st.subheader("📥 Input QR Code")
+    if st.session_state["imageCaptured"]:
+        st.image(st.session_state["imageCaptured"])
 
-<script>
-function onScanSuccess(decodedText, decodedResult) {
-    window.parent.postMessage({barcode: decodedText}, "*");
-}
+# PROCESSING & OUTPUT
+with col3:
+    st.subheader("📤 Output QR Code")
+    if st.session_state["imageCaptured"]:
+        img = Image.open(st.session_state["imageCaptured"])
+        np_img = np.array(img)
 
-function onScanFailure(error) {}
+        # === OpenCV QR Decode ===
+        qrDecoder = cv2.QRCodeDetector()
+        data, points, _ = qrDecoder.detectAndDecode(np_img)
 
-let html5Qr = new Html5Qrcode("reader");
+        if data:
+            st.success(f"Barcode terbaca: **{data}**")
+            st.session_state["barcode_input"] = data
+        else:
+            st.error("Gagal membaca QR Code")
 
-Html5Qrcode.getCameras().then(cameras => {
-    let camId = cameras.length > 1 ? cameras[1].id : cameras[0].id;
+# ======================================================
+# 2. INPUT BARCODE TERBACA
+# ======================================================
 
-    html5Qr.start(
-        camId,
-        { fps: 12, qrbox: 250 },
-        onScanSuccess,
-        onScanFailure
-    );
-});
-</script>
-"""
+barcode_value = st.text_input("Barcode terbaca:", value=st.session_state.get("barcode_input", ""))
 
-st.components.v1.html(scanner_html, height=420)
-
-# RECEIVE BARCODE FROM JS
-st.markdown("""
-<script>
-window.addEventListener("message", (event) => {
-    if (event.data.barcode) {
-        const inp = window.parent.document.querySelector('input[id="barcode_input"]');
-        inp.value = event.data.barcode;
-        inp.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-});
-</script>
-""", unsafe_allow_html=True)
-
-# =========================================================
-# 2. SIMPAN STOK
-# =========================================================
+# ======================================================
+# 3. SIMPAN KE DATABASE
+# ======================================================
 
 st.markdown("---")
 st.subheader("📦 Tambah Stok")
@@ -76,7 +73,6 @@ if st.button("➕ Tambahkan Stok"):
             conn = get_conn()
             cur = conn.cursor()
 
-            # sesuai format barcode kamu: 0101021125
             item_code = bc[:4]
             date = bc[4:10]
 
