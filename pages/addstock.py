@@ -1,172 +1,123 @@
 import streamlit as st
-import streamlit.components.v1 as components
-from db import get_conn
-import psycopg2
+import cv2
+import numpy as np
+from pyzbar.pyzbar import decode
 import datetime
+from db import get_conn
 import base64
+import psycopg2
 
 st.set_page_config(page_title="Scan Barcode", page_icon="📷")
 
-st.title("📷 Scan Barcode – Ultra Reader")
-st.write("Gunakan kamera Streamlit atau upload foto barcode. Sistem akan mencoba membaca otomatis.")
+st.title("📷 Scan Barcode – Live Scanner (OpenCV Style)")
 
 barcode_value = st.text_input("Barcode Terbaca:", key="barcode_input")
 
-# ============================================================
-#  1. KAMERA STREAMLIT + QUAGGA2 (PALING AMAN & STABIL)
-# ============================================================
+st.markdown("""
+<style>
+#camera-box {
+    width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+}
+</style>
+""", unsafe_allow_html=True)
 
-st.markdown("---")
-st.subheader("📸 Ambil Foto Barcode")
+st.subheader("📸 Live Scan (Webcam)")
 
-img = st.camera_input("Ambil foto barcode:")
+# =========================================================
+#  CAMERA STREAM → SEND FRAMES TO PYTHON
+# =========================================================
 
-if img:
-    data = base64.b64encode(img.read()).decode()
+frame_placeholder = st.empty()
 
-    decode_js = f"""
-    <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+# JS membaca camera, mengirim base64 frame ke Streamlit
+st.markdown("""
+<script>
+let video = document.createElement('video');
+video.setAttribute('playsinline', ''); // iPhone fix
+video.setAttribute('autoplay', '');
+video.setAttribute('muted', '');
+video.style.width = "100%";
 
-    <img id="qrimg" src="data:image/png;base64,{data}" style="display:none">
+navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+    video.srcObject = stream;
+});
 
-    <script>
-    function enhance(canvas, ctx, img) {{
-        canvas.width = img.width * 2;
-        canvas.height = img.height * 2;
-        ctx.filter = "contrast(180%) brightness(120%)";
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    }}
+let canvas = document.createElement('canvas');
+let ctx = canvas.getContext('2d');
 
-    setTimeout(() => {{
-        const img = document.getElementById("qrimg");
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
+setInterval(() => {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
 
-        enhance(canvas, ctx, img);
+    let dataURL = canvas.toDataURL('image/jpeg');
+    window.parent.postMessage({frame: dataURL}, "*");
 
-        Quagga.decodeSingle(
-            {{
-                src: canvas.toDataURL(),
-                numOfWorkers: 0,
-                locate: true,
-                inputStream: {{ size: 800 }},
-                decoder: {{
-                    readers: [
-                        "qr_reader",
-                        "datamatrix_reader",
-                        "code_128_reader",
-                        "code_39_reader",
-                        "ean_reader"
-                    ]
-                }}
-            }},
-            function(result) {{
-                if (result && result.codeResult) {{
-                    window.parent.postMessage({{barcode: result.codeResult.code}}, "*");
-                }} else {{
-                    window.parent.postMessage({{barcode: ""}}, "*");
-                }}
-            }}
-        );
-    }}, 500);
-    </script>
-    """
-
-    components.html(decode_js, height=1)
+}, 300); // 300ms per frame
+</script>
+""", unsafe_allow_html=True)
 
 
-# ============================================================
-#   2. TERIMA HASIL DECODE BARCODE
-# ============================================================
-
+# Streamlit menerima frame
 st.markdown("""
 <script>
 window.addEventListener("message", (event) => {
-    if (event.data.barcode !== undefined) {
-        const target = window.parent.document.querySelector('input[id="barcode_input"]');
-        target.value = event.data.barcode;
-        target.dispatchEvent(new Event("input", { bubbles: true }));
+    if (event.data.frame) {
+        const i = window.parent.document.querySelector('input[id="frame_input"]');
+        i.value = event.data.frame;
+        i.dispatchEvent(new Event("input", { bubbles: true }));
     }
 });
 </script>
 """, unsafe_allow_html=True)
 
-
-# ============================================================
-#   3. UPLOAD FOTO BARCODE
-# ============================================================
-
-st.markdown("---")
-st.subheader("🖼 Upload Foto Barcode")
-
-uploaded = st.file_uploader("Upload gambar barcode", type=["png","jpg","jpeg"])
-
-if uploaded:
-    data = base64.b64encode(uploaded.read()).decode()
-
-    decode_js = f"""
-    <script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
-    <img id="upimg" src="data:image/png;base64,{data}" style="display:none" />
-
-    <script>
-    setTimeout(() => {{
-        const img = document.getElementById("upimg");
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-
-        canvas.width = img.width * 2;
-        canvas.height = img.height * 2;
-
-        ctx.filter = "contrast(180%) brightness(115%)";
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        Quagga.decodeSingle(
-            {{
-                src: canvas.toDataURL(),
-                numOfWorkers: 0,
-                locate: true,
-                decoder: {{
-                    readers: [
-                        "qr_reader",
-                        "datamatrix_reader",
-                        "code_128_reader",
-                        "code_39_reader",
-                        "ean_reader"
-                    ]
-                }}
-            }},
-            function(result) {{
-                if (result && result.codeResult) {{
-                    window.parent.postMessage({{barcode: result.codeResult.code}}, "*");
-                }} else {{
-                    window.parent.postMessage({{barcode: ""}}, "*");
-                }}
-            }}
-        );
-    }}, 500);
-    </script>
-    """
-
-    components.html(decode_js, height=1)
+frame_input = st.text_input("frame_input", key="frame_input", label_visibility="hidden")
 
 
+# =========================================================
+# DECODE FRAME USING PYZBAR + OPENCV
+# =========================================================
 
-# ============================================================
-#   4. SIMPAN KE DATABASE
-# ============================================================
+if frame_input.startswith("data:image"):
+    # Remove header base64
+    frame_bytes = base64.b64decode(frame_input.split(",")[1])
+    frame_array = np.frombuffer(frame_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+
+    detected = decode(frame)
+
+    if detected:
+        barcode = detected[0].data.decode()
+
+        # draw rectangle
+        for d in detected:
+            x, y, w, h = d.rect
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 3)
+
+        # update UI text
+        barcode_value = barcode
+        st.session_state["barcode_input"] = barcode
+
+    frame_placeholder.image(frame, channels="BGR")
+
+
+# =========================================================
+#  SIMPAN STOK
+# =========================================================
 
 st.markdown("---")
 st.subheader("📦 Tambah Stok")
 
-rak = st.text_input("Rak tujuan", placeholder="misal: 3")
+rak = st.text_input("Rak tujuan:", placeholder="misal: 3")
 
 if st.button("➕ Tambahkan Stok"):
     bc = barcode_value.strip()
-
-    st.write("Nilai BC =", bc)
+    st.write("Barcode terbaca =", bc)
 
     if len(bc) < 10:
-        st.error("Barcode tidak valid atau gagal dibaca.")
+        st.error("Barcode tidak valid.")
     else:
         try:
             conn = get_conn()
@@ -178,7 +129,6 @@ if st.button("➕ Tambahkan Stok"):
             day = int(date_code[:2])
             month = int(date_code[2:4])
             year = 2000 + int(date_code[4:6])
-
             tanggal = datetime.date(year, month, day).strftime("%d %b %Y")
 
             cur.execute("SELECT item_id FROM items WHERE barcode=%s", (item_code,))
@@ -200,8 +150,7 @@ if st.button("➕ Tambahkan Stok"):
             if cek:
                 jumlah = cek[0] + 1
                 cur.execute("""
-                    UPDATE stock 
-                    SET jumlah=%s, rak=%s, terakhir_update=%s
+                    UPDATE stock SET jumlah=%s, rak=%s, terakhir_update=%s
                     WHERE item_id=%s
                 """, (jumlah, rak, tanggal, item_id))
             else:
@@ -211,6 +160,7 @@ if st.button("➕ Tambahkan Stok"):
                 """, (item_id, rak, 1, tanggal))
 
             conn.commit()
+
             st.success(f"Stok {item_code} berhasil ditambahkan!")
 
         except Exception as e:
