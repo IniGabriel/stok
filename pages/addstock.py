@@ -20,18 +20,41 @@ st.subheader("📸 Kamera Scanner (Pasti Muncul)")
 
 img_file = st.camera_input("Ambil foto barcode:")
 
-if img_file:
-    img = Image.open(img_file)
+def process_image(image_source):
+    """Return barcode text atau None."""
+    img = Image.open(image_source)
     frame = np.array(img)
 
     result = zxingcpp.read_barcodes(frame)
 
-    if result:
-        code = result[0].text
+    # ---------- VALIDASI 100% ----------
+    if not result:
+        return None
+
+    r = result[0]
+
+    if not r.is_valid:
+        return None
+
+    if not r.text:
+        return None
+
+    code = r.text.strip()
+
+    if code == "":
+        return None
+    
+    return code
+
+
+if img_file:
+    code = process_image(img_file)
+
+    if code:
         st.session_state["barcode_input"] = code
         st.success(f"Barcode terbaca: {code}")
     else:
-        st.error("Gagal membaca barcode")
+        st.warning("❌ Gagal membaca barcode. Pastikan gambar jelas & fokus.")
 
 
 # =====================================================
@@ -43,16 +66,14 @@ st.subheader("🖼 Upload Foto Barcode")
 uploaded = st.file_uploader("Upload gambar barcode", type=["png", "jpg", "jpeg"])
 
 if uploaded:
-    img = Image.open(uploaded)
-    frame = np.array(img)
+    code = process_image(uploaded)
 
-    result = zxingcpp.read_barcodes(frame)
-    if result:
-        code = result[0].text
+    if code:
         st.session_state["barcode_input"] = code
         st.success(f"Barcode terbaca: {code}")
     else:
-        st.error("Gagal membaca barcode")
+        st.warning("❌ Gagal membaca barcode dari gambar yang di-upload.")
+
 
 # =====================================================
 # 3. SIMPAN KE DATABASE
@@ -65,6 +86,8 @@ rak = st.text_input("Rak tujuan", placeholder="misal: 3")
 
 if st.button("➕ Tambahkan Stok"):
     bc = st.session_state.get("barcode_input", "").strip()
+
+    st.write("Barcode terbaca =", bc)
 
     if len(bc) < 10:
         st.error("Barcode tidak valid.")
