@@ -80,6 +80,7 @@ rak = st.text_input("Rak tujuan:", placeholder="misal: 3")
 
 if st.button("➕ Tambahkan Stok", type="primary"):
     barcode = barcode_value.strip()
+    st.write(f"Memproses barcode: {barcode} ke rak {rak}...")
 
     if len(barcode) < 10:
         st.error("Barcode tidak valid.")
