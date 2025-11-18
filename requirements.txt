@@ -2,3 +2,7 @@ streamlit
 psycopg2-binary
 pandas
 bcrypt
+zxing-cpp
+Pillow
+numpy
+opencv-python-headless
