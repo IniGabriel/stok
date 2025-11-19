@@ -16,7 +16,6 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
 st.title("➖ Kurangi Stok Barang")
 st.write("Scan barcode untuk mengurangi stok sebanyak 1.")
 
-
 # ======================================================
 # CAMERA INPUT 
 # ======================================================
@@ -40,7 +39,7 @@ if capture:
         bc = data.strip()
 
         # ======================================================
-        # VALIDASI BARCODE
+        # VALIDASI BARCODE MINIMAL 4 DIGIT
         # ======================================================
         if len(bc) < 4:
             st.error("Barcode tidak valid.")
@@ -51,33 +50,40 @@ if capture:
                 conn = get_conn()
                 cur = conn.cursor()
 
-                # Cek apakah barang ada
+                # ======================================================
+                # TAMPILKAN NAMA ITEM SETELAH SCAN
+                # ======================================================
                 cur.execute("SELECT item_id, nama_barang FROM items WHERE barcode=%s", (item_code,))
                 row = cur.fetchone()
 
                 if not row:
                     st.error("Item tidak ditemukan di database.")
+                    # STOP LOGIC disini kalau item tidak ada
                 else:
                     item_id, item_name = row
+                    st.info(f"🛒 Nama Item: **{item_name}**")
 
-                    # Ambil stok per rak
+                    # ======================================================
+                    # CEK STOK PER RAK
+                    # ======================================================
                     cur.execute("SELECT rak, jumlah FROM stock WHERE item_id=%s ORDER BY rak", (item_id,))
                     rak_data = cur.fetchall()
 
                     if not rak_data:
                         st.error("Stok item ini belum ada.")
                     else:
-                        # ================================================
-                        # FILTER → hanya rak dengan qty > 0
-                        # ================================================
+                        # ======================================================
+                        # FILTER RAK YANG PUNYA STOK > 0
+                        # ======================================================
                         rak_valid = [(rak, qty) for rak, qty in rak_data if qty > 0]
 
                         if len(rak_valid) == 0:
                             st.error("Tidak ada rak yang memiliki stok (>0).")
+
                         elif len(rak_valid) == 1:
-                            # ================================================
-                            # Hanya 1 rak punya stok → langsung kurangi
-                            # ================================================
+                            # ======================================================
+                            # AUTO KURANGI STOK (KARENA HANYA 1 RAK)
+                            # ======================================================
                             rak, qty = rak_valid[0]
                             jumlah_baru = max(0, qty - 1)
 
@@ -90,14 +96,14 @@ if capture:
                             conn.commit()
 
                             st.success(
-                                f"Item {item_code} ({item_name}) di rak {rak} dikurangi 1. "
+                                f"Stok item {item_code} ({item_name}) di rak {rak} dikurangi 1. "
                                 f"Sisa stok: {jumlah_baru}"
                             )
 
                         else:
-                            # ================================================
-                            # Banyak rak punya stok → user pilih rak
-                            # ================================================
+                            # ======================================================
+                            # PILIH RAK (ADA LEBIH DARI 1 RAK PUNYA STOK)
+                            # ======================================================
                             list_rak = [rak for rak, qty in rak_valid]
 
                             st.warning(

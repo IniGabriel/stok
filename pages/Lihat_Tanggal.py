@@ -1,4 +1,5 @@
 import streamlit as st
+from db import get_conn
 from PIL import Image
 import numpy as np
 import cv2
@@ -16,13 +17,11 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
 st.title("📅 Cek Tanggal dari Barcode")
 st.write("Scan barcode untuk melihat tanggalnya.")
 
-
 # ===========================
 # STATE BARCODE
 # ===========================
 if "barcode_input" not in st.session_state:
     st.session_state["barcode_input"] = ""
-
 
 # ===========================
 # CAMERA INPUT
@@ -41,9 +40,32 @@ if capture:
         barcode = data
         st.success(f"Barcode terbaca: **{data}**")
 
-        # ==========================================
-        # AUTO TAMPILKAN TANGGAL SETELAH SCAN
-        # ==========================================
+        # ======================================================
+        # TAMPILKAN NAMA ITEM (4 DIGIT AWAL)
+        # ======================================================
+        try:
+            conn = get_conn()
+            cur = conn.cursor()
+
+            item_code = barcode[:4]
+
+            cur.execute(
+                "SELECT nama_barang FROM items WHERE barcode=%s",
+                (item_code,)
+            )
+            row = cur.fetchone()
+
+            if row:
+                st.info(f"🛒 **Nama Item: {row[0]}**")
+            else:
+                st.warning("Nama item tidak ditemukan di database.")
+
+        except Exception:
+            st.warning("Gagal mengambil data item.")
+
+        # ======================================================
+        # AUTO TAMPILKAN TANGGAL
+        # ======================================================
         try:
             if len(barcode) < 10:
                 st.error("Barcode tidak valid.")
@@ -59,7 +81,7 @@ if capture:
                 tanggal_obj = datetime.date(year, mm, dd)
                 tanggal_format = tanggal_obj.strftime("%d %B %Y")
 
-                st.info(f"📅 **Tanggal pada barcode: {tanggal_format}**")
+                st.success(f"📅 **Tanggal pada barcode: {tanggal_format}**")
 
         except Exception as e:
             st.error(f"Gagal membaca tanggal: {e}")
