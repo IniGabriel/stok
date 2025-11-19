@@ -98,7 +98,7 @@ try:
     st.dataframe(df, use_container_width=True)
 
     # ==============================================
-    # DELETE STOK PER RAK
+    # DELETE STOK PER RAK + PER TANGGAL
     # ==============================================
     st.markdown("### 🗑 Hapus Stok Barang")
 
@@ -119,10 +119,16 @@ try:
         item_name_selected = pilihan
         item_id_selected = item_dict[pilihan]
 
-        # Ambil rak item itu
-        cur.execute("SELECT rak FROM stock WHERE item_id = %s ORDER BY rak",
-                    (item_id_selected,))
-        rak_list = [r[0] for r in cur.fetchall()]
+        # Ambil RAK untuk item tersebut (bisa duplikat karena beda tanggal)
+        cur.execute("""
+            SELECT rak FROM stock 
+            WHERE item_id = %s
+            ORDER BY rak
+        """, (item_id_selected,))
+        rak_raw = [r[0] for r in cur.fetchall()]
+
+        # Buat RAK unik
+        rak_list = sorted(list(set(rak_raw)))
 
         if not rak_list:
             st.info("Item ini tidak punya stok di rak mana pun.")
@@ -133,30 +139,62 @@ try:
 
             # POPUP DELETE
             if "delete_item" in st.session_state and st.session_state.delete_item == item_id_selected:
+
                 st.warning(
                     f"Item **{item_name_selected}** ditemukan di rak: "
                     f"**{', '.join(rak_list)}**"
                 )
 
+                # Pilih raknya dulu
                 rak_dipilih = st.selectbox(
                     "Pilih rak yang ingin dihapus stoknya:",
                     options=rak_list,
                     key="rak_delete_select"
                 )
 
+                # Ambil daftar tanggal (batch) untuk item + rak tersebut
+                cur.execute("""
+                    SELECT DISTINCT terakhir_update 
+                    FROM stock
+                    WHERE item_id=%s AND rak=%s
+                    ORDER BY terakhir_update
+                """, (item_id_selected, rak_dipilih))
+                tanggal_rows = cur.fetchall()
+                tanggal_list = [str(t[0]) for t in tanggal_rows]  # convert ke string biar rapi di UI
+
+                # Kalau ada beberapa tanggal batch → tanya tanggal
+                if len(tanggal_list) > 1:
+                    st.warning(
+                        f"Ada beberapa batch untuk rak {rak_dipilih}: "
+                        f"**{', '.join(tanggal_list)}**"
+                    )
+                    tanggal_dipilih = st.selectbox(
+                        "Pilih tanggal batch yang akan dihapus:",
+                        options=tanggal_list,
+                        key="tanggal_delete_select"
+                    )
+                else:
+                    # Hanya 1 tanggal
+                    tanggal_dipilih = tanggal_list[0]
+
                 colY, colN = st.columns(2)
 
                 # YA
                 with colY:
                     if st.button("✅ YA, Hapus Stok!", use_container_width=True):
+                        # Hapus hanya baris dengan item_id + rak + tanggal ini
                         cur.execute(
-                            "DELETE FROM stock WHERE item_id=%s AND rak=%s",
-                            (item_id_selected, rak_dipilih)
+                            """
+                            DELETE FROM stock 
+                            WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+                            """,
+                            (item_id_selected, rak_dipilih, tanggal_dipilih)
                         )
                         conn.commit()
 
                         st.success(
-                            f"Stok item **{item_name_selected}** di rak **{rak_dipilih}** berhasil dihapus!"
+                            f"Stok item **{item_name_selected}** di rak **{rak_dipilih}**, "
+                            f"batch **{tanggal_dipilih}** berhasil dihapus!"
                         )
 
                         del st.session_state.delete_item
