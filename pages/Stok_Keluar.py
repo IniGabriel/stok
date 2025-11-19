@@ -16,6 +16,7 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
 st.title("➖ Kurangi Stok Barang")
 st.write("Scan barcode untuk mengurangi stok sebanyak 1.")
 
+
 # ======================================================
 # CAMERA INPUT 
 # ======================================================
@@ -38,9 +39,9 @@ if capture:
 
         bc = data.strip()
 
-        # ======================================================
-        # VALIDASI BARCODE MINIMAL 4 DIGIT
-        # ======================================================
+        # ==========================
+        # VALIDASI MINIMAL 4 DIGIT
+        # ==========================
         if len(bc) < 4:
             st.error("Barcode tidak valid.")
         else:
@@ -50,96 +51,137 @@ if capture:
                 conn = get_conn()
                 cur = conn.cursor()
 
-                # ======================================================
-                # TAMPILKAN NAMA ITEM SETELAH SCAN
-                # ======================================================
+                # ==========================
+                # CEK NAMA ITEM
+                # ==========================
                 cur.execute("SELECT item_id, nama_barang FROM items WHERE barcode=%s", (item_code,))
                 row = cur.fetchone()
 
                 if not row:
                     st.error("Item tidak ditemukan di database.")
-                    # STOP LOGIC disini kalau item tidak ada
+                    stop = True
                 else:
                     item_id, item_name = row
                     st.info(f"🛒 Nama Item: **{item_name}**")
 
-                    # ======================================================
-                    # CEK STOK PER RAK
-                    # ======================================================
-                    cur.execute("SELECT rak, jumlah FROM stock WHERE item_id=%s ORDER BY rak", (item_id,))
-                    rak_data = cur.fetchall()
+                    # ==========================
+                    # AMBIL SEMUA STOK ITEM INI
+                    # ==========================
+                    cur.execute("""
+                        SELECT rak, jumlah, terakhir_update
+                        FROM stock
+                        WHERE item_id=%s
+                        ORDER BY rak
+                    """, (item_id,))
+                    stok_list = cur.fetchall()
 
-                    if not rak_data:
+                    if not stok_list:
                         st.error("Stok item ini belum ada.")
                     else:
-                        # ======================================================
-                        # FILTER RAK YANG PUNYA STOK > 0
-                        # ======================================================
-                        rak_valid = [(rak, qty) for rak, qty in rak_data if qty > 0]
+                        # FILTER yang qty > 0
+                        stok_valid = [(rak, qty, tgl) for rak, qty, tgl in stok_list if qty > 0]
 
-                        if len(rak_valid) == 0:
-                            st.error("Tidak ada rak yang memiliki stok (>0).")
+                        if len(stok_valid) == 0:
+                            st.error("Tidak ada stok yang jumlahnya > 0.")
+                            raise Exception()
 
-                        elif len(rak_valid) == 1:
-                            # ======================================================
-                            # AUTO KURANGI STOK (KARENA HANYA 1 RAK)
-                            # ======================================================
-                            rak, qty = rak_valid[0]
-                            jumlah_baru = max(0, qty - 1)
+                        # ===========================================
+                        # LIST RAK VALID + LIST TANGGAL VALID
+                        # ===========================================
+                        rak_set = sorted(list({rak for rak, qty, tgl in stok_valid}))
+                        tanggal_set = sorted(list({tgl for rak, qty, tgl in stok_valid}))
+
+                        # ==========================================================
+                        # KASUS 1 — hanya ada SATU rak dan SATU tanggal → AUTO KURANGI
+                        # ==========================================================
+                        if len(rak_set) == 1 and len(tanggal_set) == 1:
+                            rak_auto = rak_set[0]
+                            tgl_auto = tanggal_set[0]
 
                             cur.execute("""
-                                UPDATE stock
-                                SET jumlah=%s
-                                WHERE item_id=%s AND rak=%s
-                            """, (jumlah_baru, item_id, rak))
+                                SELECT jumlah FROM stock
+                                WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+                            """, (item_id, rak_auto, tgl_auto))
+                            qty_now = cur.fetchone()[0]
+
+                            qty_new = qty_now - 1
+
+                            if qty_new <= 0:
+                                cur.execute("""
+                                    DELETE FROM stock 
+                                    WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+                                """, (item_id, rak_auto, tgl_auto))
+                                msg = "Stok menjadi 0 → baris stok dihapus."
+                            else:
+                                cur.execute("""
+                                    UPDATE stock SET jumlah=%s
+                                    WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+                                """, (qty_new, item_id, rak_auto, tgl_auto))
+                                msg = f"Sisa stok: {qty_new}"
 
                             conn.commit()
 
                             st.success(
-                                f"Stok item {item_code} ({item_name}) di rak {rak} dikurangi 1. "
-                                f"Sisa stok: {jumlah_baru}"
+                                f"Stok item **{item_name}** di rak {rak_auto} (batch {tgl_auto}) dikurangi 1. {msg}"
                             )
+                            raise Exception()   # Stop agar tidak lanjut logic bawah
 
+                        # ==========================================================
+                        # KASUS 2 — banyak rak → pilih rak
+                        # ==========================================================
+                        if len(rak_set) > 1:
+                            st.warning(f"Item tersedia di rak: {', '.join(rak_set)}")
+                            rak_pilih = st.selectbox("Pilih rak:", rak_set, key="pilih_rak")
+
+                            # FILTER stok batch dalam rak itu
+                            batch_rak = [tgl for rak, qty, tgl in stok_valid if rak == rak_pilih]
                         else:
-                            # ======================================================
-                            # PILIH RAK (ADA LEBIH DARI 1 RAK PUNYA STOK)
-                            # ======================================================
-                            list_rak = [rak for rak, qty in rak_valid]
+                            rak_pilih = rak_set[0]
+                            batch_rak = tanggal_set
 
-                            st.warning(
-                                f"Item **{item_name}** memiliki stok di rak: "
-                                f"{', '.join(list_rak)}"
-                            )
+                        # ==========================================================
+                        # KASUS 3 — kalau dalam rak itu ada banyak tanggal → pilih tanggal
+                        # ==========================================================
+                        if len(batch_rak) > 1:
+                            st.warning(f"Batch tersedia: {', '.join(batch_rak)}")
+                            tgl_pilih = st.selectbox("Pilih batch (tanggal):", batch_rak, key="pilih_batch")
+                        else:
+                            tgl_pilih = batch_rak[0]
 
-                            rak_dipilih = st.selectbox(
-                                "Pilih rak yang ingin dikurangi 1:",
-                                options=list_rak,
-                                key="rak_pilihan"
-                            )
+                        # ==========================================================
+                        # TOMBOL KONFIRMASI
+                        # ==========================================================
+                        if st.button("Kurangi 1"):
 
-                            if st.button("Kurangi 1 di rak ini"):
-                                cur.execute(
-                                    "SELECT jumlah FROM stock WHERE item_id=%s AND rak=%s",
-                                    (item_id, rak_dipilih)
-                                )
-                                current_qty = cur.fetchone()[0]
-                                jumlah_baru = max(0, current_qty - 1)
+                            cur.execute("""
+                                SELECT jumlah FROM stock
+                                WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+                            """, (item_id, rak_pilih, tgl_pilih))
+                            qty_now = cur.fetchone()[0]
 
+                            qty_new = qty_now - 1
+
+                            if qty_new <= 0:
                                 cur.execute("""
-                                    UPDATE stock
-                                    SET jumlah=%s
-                                    WHERE item_id=%s AND rak=%s
-                                """, (jumlah_baru, item_id, rak_dipilih))
+                                    DELETE FROM stock 
+                                    WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+                                """, (item_id, rak_pilih, tgl_pilih))
+                                msg2 = "Stok menjadi 0 → baris stok DIHAPUS."
+                            else:
+                                cur.execute("""
+                                    UPDATE stock SET jumlah=%s
+                                    WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+                                """, (qty_new, item_id, rak_pilih, tgl_pilih))
+                                msg2 = f"Sisa stok: {qty_new}"
 
-                                conn.commit()
+                            conn.commit()
 
-                                st.success(
-                                    f"Stok item {item_code} ({item_name}) di rak {rak_dipilih} dikurangi 1. "
-                                    f"Sisa stok: {jumlah_baru}"
-                                )
+                            st.success(
+                                f"Stok item **{item_name}** di rak {rak_pilih} (batch {tgl_pilih}) dikurangi 1. {msg2}"
+                            )
 
-            except Exception as e:
-                st.error(f"Error: {e}")
+            except Exception:
+                pass   # biar tidak spam error bawah
 
     else:
         st.error("Gagal membaca QR Code — pastikan kamera fokus & jelas.")

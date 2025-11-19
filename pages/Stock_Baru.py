@@ -14,7 +14,6 @@ if "logged_in" not in st.session_state or not st.session_state.logged_in:
     time.sleep(2)
     st.switch_page("home.py")
 
-
 st.title("📷 Scan Barcode – QR Live Reader (OpenCV)")
 st.write("Arahkan kamera HP/Laptop ke QR Code. Sistem membaca otomatis.")
 
@@ -27,7 +26,7 @@ if "barcode_input" not in st.session_state:
 
 capture = st.camera_input("📸 Scan QR Code")
 
-item_name_scanned = None  # untuk menampilkan nama barang
+item_name_scanned = None  # menyimpan nama item hasil scan
 
 if capture:
     img = Image.open(capture)
@@ -40,8 +39,11 @@ if capture:
         st.session_state["barcode_input"] = data
         st.success(f"Barcode terbaca: **{data}**")
 
-        # Try fetch nama item
         bc = data.strip()
+
+        # ==========================================
+        # VALIDASI MINIMAL 4 DIGIT
+        # ==========================================
         if len(bc) >= 4:
             item_code = bc[:4]
 
@@ -49,6 +51,7 @@ if capture:
                 conn = get_conn()
                 cur = conn.cursor()
 
+                # Ambil nama item
                 cur.execute(
                     "SELECT nama_barang FROM items WHERE barcode=%s",
                     (item_code,)
@@ -61,7 +64,7 @@ if capture:
                 else:
                     st.warning("Nama barang tidak ditemukan di database.")
 
-            except:
+            except Exception:
                 st.warning("Gagal mengambil nama barang dari database.")
 
     else:
@@ -94,9 +97,11 @@ if st.button("➕ Tambahkan Stok"):
             conn = get_conn()
             cur = conn.cursor()
 
+            # =======================
+            # Ambil item_id & nama
+            # =======================
             item_code = bc[:4]
 
-            # Ambil item_id & nama_barang
             cur.execute(
                 "SELECT item_id, nama_barang FROM items WHERE barcode=%s",
                 (item_code,)
@@ -110,39 +115,50 @@ if st.button("➕ Tambahkan Stok"):
             item_id = row[0]
             item_name = row[1]
 
-            # Extract tanggal dari barcode
-            date = bc[4:10]
-            day = int(date[:2])
-            month = int(date[2:4])
-            year = 2000 + int(date[4:6])
+            # =======================
+            # Extract tanggal batch
+            # =======================
+            date = bc[4:10]  # DDMMYY
+            dd = int(date[:2])
+            mm = int(date[2:4])
+            yy = int(date[4:6])
+            tahun = 2000 + yy
 
-            tanggal = datetime.date(year, month, day).strftime("%d %b %Y")
+            tanggal_obj = datetime.date(tahun, mm, dd)
+            tanggal_str = tanggal_obj.strftime("%d %b %Y")
 
-            # Cek stok di rak
+            # =======================
+            # Cek stok berdasarkan:
+            # item_id + rak + tanggal
+            # =======================
             cur.execute("""
                 SELECT jumlah FROM stock
-                WHERE item_id=%s AND rak=%s
-            """, (item_id, rak))
+                WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+            """, (item_id, rak, tanggal_str))
             s = cur.fetchone()
 
             if s:
+                # Batch sama → update jumlah
                 jumlah = s[0] + qty
                 cur.execute("""
                     UPDATE stock
-                    SET jumlah=%s, terakhir_update=%s
-                    WHERE item_id=%s AND rak=%s
-                """, (jumlah, tanggal, item_id, rak))
+                    SET jumlah=%s
+                    WHERE item_id=%s AND rak=%s AND terakhir_update=%s
+                """, (jumlah, item_id, rak, tanggal_str))
+
             else:
+                # Batch baru → INSERT baris baru
                 cur.execute("""
                     INSERT INTO stock (item_id, rak, jumlah, terakhir_update)
                     VALUES (%s, %s, %s, %s)
-                """, (item_id, rak, qty, tanggal))
+                """, (item_id, rak, qty, tanggal_str))
 
             conn.commit()
 
             st.success(
-                f"Stok item {item_code} (**{item_name}**) di rak {rak} berhasil "
-                f"ditambahkan sebanyak {qty} item!"
+                f"Stok item {item_code} (**{item_name}**) "
+                f"di rak {rak} berhasil ditambahkan sebanyak {qty} item. "
+                f"📅 Batch: **{tanggal_str}**"
             )
 
         except Exception as e:
