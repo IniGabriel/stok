@@ -29,33 +29,31 @@ if st.button("Simpan", type="primary"):
             conn = get_conn()
             cur = conn.cursor()
 
-            # -----------------------------------
-            # INSERT KE ITEMS
-            # -----------------------------------
+            # =====================================
+            # INSERT KE TABEL ITEMS
+            # =====================================
             cur.execute("""
                 INSERT INTO items (barcode, nama_barang)
                 VALUES (%s, %s)
                 RETURNING item_id
             """, (barcode, nama_barang))
 
-            item_id = cur.fetchone()[0]  # ambil ID hasil insert
+            item_id = cur.fetchone()[0]
 
-            # -----------------------------------
-            # INSERT DEFAULT KE STOCK
-            # updated_at FORMAT "18 Nov 2025"
-            # -----------------------------------
+            # =====================================
+            # BUAT STOCK DEFAULT (rak 0, jumlah 0)
+            # =====================================
             cur.execute("""
-                INSERT INTO stock (item_id, rak, jumlah, terakhir_update)
-                VALUES (%s, %s, %s, TO_CHAR(NOW(), 'DD Mon YYYY'))
+                INSERT INTO stock (item_id, rak, jumlah)
+                VALUES (%s, %s, %s)
             """, (item_id, "0", 0))
 
-            # SAVE
             conn.commit()
             cur.close()
             conn.close()
 
             st.success(f"Item '{nama_barang}' berhasil ditambahkan!")
-            st.info("Stock default berhasil dibuat (rak 0, jumlah 0).")
+            st.info("Stok default berhasil dibuat (rak 0, jumlah 0).")
 
         except psycopg2.errors.UniqueViolation:
             st.error("Barcode sudah terdaftar!")
